@@ -1,21 +1,18 @@
 #![feature(set_stdio)]
-#![feature(panic_col)]
 
 use std::ffi::CString;
-use std::os::raw::c_char;
 use std::fmt;
 use std::fmt::Write;
-use std::panic;
 use std::io;
-
+use std::os::raw::c_char;
+use std::panic;
 
 // these are the functions you'll need to privide with JS
-extern {
+extern "C" {
     fn print(ptr: *const c_char);
     fn eprint(ptr: *const c_char);
     fn trace(ptr: *const c_char);
 }
-
 
 fn _print(buf: &str) -> io::Result<()> {
     let cstring = CString::new(buf)?;
@@ -65,9 +62,9 @@ macro_rules! eprint {
     ($($arg:tt)*) => ($crate::_eprint_args(format_args!($($arg)*)));
 }
 
-
 type PrintFn = fn(&str) -> io::Result<()>;
 
+#[derive(Clone)]
 struct Printer {
     printfn: PrintFn,
     buffer: String,
@@ -81,6 +78,12 @@ impl Printer {
             printfn,
             is_buffered,
         }
+    }
+}
+
+impl io::LocalOutput for Printer {
+    fn clone_box(&self) -> Box<dyn io::LocalOutput> {
+        Box::new(self.clone())
     }
 }
 
@@ -118,7 +121,6 @@ impl io::Write for Printer {
     }
 }
 
-
 /// Sets a line-buffered stdout, uses your JavaScript `print` function
 pub fn set_stdout() {
     let printer = Printer::new(_print, true);
@@ -152,12 +154,10 @@ pub fn set_panic_hook() {
 
         let msg = match info.payload().downcast_ref::<&'static str>() {
             Some(s) => *s,
-            None => {
-                match info.payload().downcast_ref::<String>() {
-                    Some(s) => &s[..],
-                    None => "Box<Any>",
-                }
-            }
+            None => match info.payload().downcast_ref::<String>() {
+                Some(s) => &s[..],
+                None => "Box<Any>",
+            },
         };
 
         let err_info = format!("Panicked at '{}', {}:{}:{}", msg, file, line, col);
